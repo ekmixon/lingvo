@@ -89,14 +89,14 @@ class _ModelRegistryHelper:
     if 'params.' in path:
       path = path.replace('params.', '')
     if inspect.getfile(src_cls).endswith('test.py'):
-      return 'test.{}'.format(src_cls.__name__)
-    return '{}.{}'.format(path, src_cls.__name__)
+      return f'test.{src_cls.__name__}'
+    return f'{path}.{src_cls.__name__}'
 
   @classmethod
   def _GetSourceInfo(cls, src_cls):
     """Gets a source info string given a source class."""
-    info_str = '%s@%s' % (cls._ModelParamsClassKey(src_cls),
-                          inspect.getsourcefile(src_cls))
+    info_str = (
+        f'{cls._ModelParamsClassKey(src_cls)}@{inspect.getsourcefile(src_cls)}')
     try:
       return f'{info_str}:{inspect.getsourcelines(src_cls)[-1]}'
     except OSError:
@@ -110,8 +110,9 @@ class _ModelRegistryHelper:
     key = cls._ModelParamsClassKey(src_cls)
     module = src_cls.__module__
     if not cls._MODEL_PARAMS_ALLOW_REDEF and key in cls._MODEL_PARAMS:
-      raise ValueError('Duplicate model registered for key {}: {}.{}'.format(
-          key, module, src_cls.__name__))
+      raise ValueError(
+          f'Duplicate model registered for key {key}: {module}.{src_cls.__name__}'
+      )
 
     tf.logging.debug('Registering model %s', key)
     # Log less frequently (once per module) but at a higher verbosity level.
@@ -158,11 +159,11 @@ class _ModelRegistryHelper:
   @classmethod
   def MaybeUpdateParamsFromFlags(cls, cfg):
     """Updates Model() Params from flags if set."""
-    if FLAGS.model_params_override and FLAGS.model_params_file_override:
-      raise ValueError('Only one of --model_params_override and'
-                       ' --model_params_file_override may be specified.')
-
     if FLAGS.model_params_override:
+      if FLAGS.model_params_file_override:
+        raise ValueError('Only one of --model_params_override and'
+                         ' --model_params_file_override may be specified.')
+
       params_override = FLAGS.model_params_override.replace(';', '\n')
       tf.logging.info('Applying params overrides:\n%s\nTo:\n%s',
                       params_override, cfg.ToText())
@@ -187,8 +188,7 @@ class _ModelRegistryHelper:
   def RegisterSingleTaskModel(cls, src_cls):
     """Class decorator that registers a `.SingleTaskModelParams` subclass."""
     if not issubclass(src_cls, base_model_params.SingleTaskModelParams):
-      raise TypeError('src_cls %s is not a SingleTaskModelParams!' %
-                      src_cls.__name__)
+      raise TypeError(f'src_cls {src_cls.__name__} is not a SingleTaskModelParams!')
     cls._RegisterModel(cls._CreateWrapperClass(src_cls), src_cls)
     return src_cls
 
@@ -196,8 +196,7 @@ class _ModelRegistryHelper:
   def RegisterMultiTaskModel(cls, src_cls):
     """Class decorator that registers a `.MultiTaskModelParams` subclass."""
     if not issubclass(src_cls, base_model_params.MultiTaskModelParams):
-      raise TypeError('src_cls %s is not a MultiTaskModelParams!' %
-                      src_cls.__name__)
+      raise TypeError(f'src_cls {src_cls.__name__} is not a MultiTaskModelParams!')
     cls._RegisterModel(cls._CreateWrapperClass(src_cls), src_cls)
     return src_cls
 
@@ -226,8 +225,8 @@ class _ModelRegistryHelper:
     if class_key not in all_params:
       for k in sorted(all_params):
         tf.logging.info('Known model: %s', k)
-      raise LookupError('Model %s not found from list of above known models.' %
-                        class_key)
+      raise LookupError(
+          f'Model {class_key} not found from list of above known models.')
     return all_params[class_key]
 
   @classmethod

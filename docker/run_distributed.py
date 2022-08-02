@@ -89,11 +89,8 @@ SHARED_FS_MOUNTPOINT = "/tmp/sharedfs"
 
 
 def _RunDocker(args):
-  print("Running: docker %s" % args)
-  if DRY_RUN:
-    return 0
-  ret = subprocess.call([DOCKER_BIN] + args)
-  return ret
+  print(f"Running: docker {args}")
+  return 0 if DRY_RUN else subprocess.call([DOCKER_BIN] + args)
 
 
 def _RunDockerOrDie(args):
@@ -120,14 +117,13 @@ def _ExecInDocker(container_name,
   if logfile:
     # The logfile is in the container.
     cmd = " ".join(shell_quote(x) for x in cmd_array)
-    cmd += " >& %s" % logfile
+    cmd += f" >& {logfile}"
     full_cmd = base_cmd + ["bash", "-c", cmd]
   else:
     full_cmd = base_cmd + cmd_array
   ret = _RunDocker(full_cmd)
   if ret != 0:
-    sys.stderr.write(
-        "Failed to exec within %s: %s" % (container_name, cmd_array))
+    sys.stderr.write(f"Failed to exec within {container_name}: {cmd_array}")
     sys.exit(ret)
 
 
@@ -148,10 +144,10 @@ def Cleanup():
 def InitFiles():
   os.mkdir(SHARED_FS_MOUNTPOINT, 0o1777)
   # Create these directories so that we own them, not root.
-  os.mkdir(SHARED_FS_MOUNTPOINT + "/log", 0o1777)
-  os.mkdir(SHARED_FS_MOUNTPOINT + "/log/train", 0o1777)
-  os.mkdir(SHARED_FS_MOUNTPOINT + "/log/decoder_test", 0o1777)
-  os.mkdir(SHARED_FS_MOUNTPOINT + "/log/eval_test", 0o1777)
+  os.mkdir(f"{SHARED_FS_MOUNTPOINT}/log", 0o1777)
+  os.mkdir(f"{SHARED_FS_MOUNTPOINT}/log/train", 0o1777)
+  os.mkdir(f"{SHARED_FS_MOUNTPOINT}/log/decoder_test", 0o1777)
+  os.mkdir(f"{SHARED_FS_MOUNTPOINT}/log/eval_test", 0o1777)
 
 
 def InitNetwork():
@@ -171,39 +167,39 @@ def StartFleet():
 
 
 def MakeFlagClusterSpec(cluster_spec):
-  job_specs = []
-  for job_name in sorted(cluster_spec.keys()):
-    job_specs += [job_name + "=" + ",".join(cluster_spec[job_name])]
-  flag_spec = "@".join(job_specs)
-  return flag_spec
+  job_specs = [
+      f"{job_name}=" + ",".join(cluster_spec[job_name])
+      for job_name in sorted(cluster_spec.keys())
+  ]
+  return "@".join(job_specs)
 
 
 def CopyTrainerToSharedMount():
-  shutil.copy(TRAINER_PACKAGE, SHARED_FS_MOUNTPOINT + "/trainer.par")
+  shutil.copy(TRAINER_PACKAGE, f"{SHARED_FS_MOUNTPOINT}/trainer.par")
 
 
 def InstallAndStartProcess(cluster_spec):
   """Unpacks the trainer and kick off training."""
   cluster_spec_flag = MakeFlagClusterSpec(cluster_spec)
   for job_name, machines in cluster_spec.items():
-    task_idx = 0
-    for machine_port in machines:
+    for task_idx, machine_port in enumerate(machines):
       machine_name = _Machine(machine_port)
       _ExecInDocker(
-          machine_name, [
+          machine_name,
+          [
               os.path.join(SHARED_FS_MOUNTPOINT, "trainer.par"),
-              "--cluster_spec=%s" % cluster_spec_flag,
-              "--job=%s" % job_name,
+              f"--cluster_spec={cluster_spec_flag}",
+              f"--job={job_name}",
               "--task=%d" % task_idx,
-              "--mode=%s" % TRAIN_MODE,
+              f"--mode={TRAIN_MODE}",
               "--logtostderr",
-              "--model=%s" % MODEL,
-              "--logdir=%s/log" % SHARED_FS_MOUNTPOINT,
+              f"--model={MODEL}",
+              f"--logdir={SHARED_FS_MOUNTPOINT}/log",
           ],
           workdir="/tmp",
           logfile="%s/%s.%d.log" % (SHARED_FS_MOUNTPOINT, job_name, task_idx),
-          detach=True)
-      task_idx += 1
+          detach=True,
+      )
 
 
 def main():

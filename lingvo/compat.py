@@ -287,7 +287,7 @@ class variable_scope(tf1.variable_scope):  # pylint: disable=invalid-name
       # In eager mode, the reuse arg to variable_scope is silently overwritten
       # to AUTO_REUSE. We opt to raise an error instead.
       # https://github.com/tensorflow/tensorflow/blob/9345aee6988f50b7c571295a9e70e40e47221a64/tensorflow/python/ops/variable_scope.py#L1166
-      reuse = kwargs.get("reuse", None)
+      reuse = kwargs.get("reuse")
       if reuse in (True, False):
         raise ValueError(
             "Setting reuse to True or False is not supported in eager mode.")

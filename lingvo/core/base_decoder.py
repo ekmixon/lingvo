@@ -81,10 +81,10 @@ class BaseDecoder(base_layer.BaseLayer):
         metrics=metrics, predictions=predictions, per_sequence=per_sequence)
 
   def ComputePredictions(self, theta, encoder_outputs, targets):
-    raise NotImplementedError('Abstract method: %s' % type(self))
+    raise NotImplementedError(f'Abstract method: {type(self)}')
 
   def ComputeLoss(self, theta, predictions, targets):
-    raise NotImplementedError('Abstract method: %s' % type(self))
+    raise NotImplementedError(f'Abstract method: {type(self)}')
 
 
 class BaseBeamSearchDecoder(BaseDecoder):

@@ -101,7 +101,7 @@ class Trainer(base_runner.BaseRunner):
 
   def StartEnqueueOp(self, op):
     self._RunLoop(
-        'trainer/enqueue_op/%s' % op.name, self._LoopEnqueue, loop_args=[op])
+        f'trainer/enqueue_op/{op.name}', self._LoopEnqueue, loop_args=[op])
 
   def _LoopEnqueue(self, op):
     # Evaler/Controller jobs may find that the trial is infeasible and report
@@ -203,7 +203,7 @@ class Trainer(base_runner.BaseRunner):
 
 def GetDecoderDir(logdir, decoder_type, model_task_name):
   if model_task_name:
-    decoder_dir = '%s_%s' % (decoder_type, model_task_name)
+    decoder_dir = f'{decoder_type}_{model_task_name}'
   else:
     decoder_dir = decoder_type
   return os.path.join(logdir, decoder_dir)
@@ -238,7 +238,7 @@ class Decoder(base_runner.BaseRunner):
 
   def __init__(self, decoder_type, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    self._job_name = 'decoder_' + decoder_type
+    self._job_name = f'decoder_{decoder_type}'
     self.params.cluster.do_eval = True
     self._cluster = cluster_factory.Cluster(self.params.cluster)
     self._decoder_dir = GetDecoderDir(self._logdir, self._job_name,
@@ -293,8 +293,11 @@ class Decoder(base_runner.BaseRunner):
     # Saves the graph def.
     self._WriteToLog(self.params.ToText(), self._decoder_dir, 'params.txt')
     if self.params.cluster.task == 0:
-      tf.io.write_graph(self._graph.as_graph_def(), self._decoder_dir,
-                        '%s.pbtxt' % self._job_name)
+      tf.io.write_graph(
+          self._graph.as_graph_def(),
+          self._decoder_dir,
+          f'{self._job_name}.pbtxt',
+      )
 
   def _CreateCheckpointer(self, train_dir, model):
     """Wrapper method for override purposes."""

@@ -193,7 +193,8 @@ class PerDimScaleLayer(base_layer.BaseLayer):
         shape=[p.dim],
         init=py_utils.WeightInit.Constant(0.0),
         dtype=p.dtype,
-        collections=[self.__class__.__name__ + '_vars'])
+        collections=[f'{self.__class__.__name__}_vars'],
+    )
     self.CreateVariable('per_dim_scale', pc)
 
   def FProp(self, theta, inputs):
@@ -216,7 +217,7 @@ class PerDimScaleLayer(base_layer.BaseLayer):
       # 1.0/tf.nn.softplus(0.0) = 1.442695041. Hard code this number so that we
       # can avoid unnecessary XLA op fusion mess on TPU.
       r_softplus_0 = 1.442695041
-      if isinstance(dim, int) or isinstance(dim, float):
+      if isinstance(dim, (int, float)):
         scale = tf.constant(r_softplus_0 / np.sqrt(dim), dtype=inputs.dtype)
       else:
         scale = tf.cast(
@@ -287,7 +288,8 @@ class MultiHeadedProjectionLayer(quant_utils.QuantizableLayer):
         dtype=p.dtype,
         device_mesh=p.device_mesh,
         tensor_split_dims_mapping=p.weight_split_dims_mapping,
-        collections=[self.__class__.__name__ + '_vars'])
+        collections=[f'{self.__class__.__name__}_vars'],
+    )
     self.CreateVariable('w', pc)
     if p.use_bias:
       if p.is_output_projection:
@@ -301,7 +303,8 @@ class MultiHeadedProjectionLayer(quant_utils.QuantizableLayer):
             dtype=p.dtype,
             device_mesh=p.device_mesh,
             tensor_split_dims_mapping=bias_split_dims_mapping,
-            collections=[self.__class__.__name__ + '_vars'])
+            collections=[f'{self.__class__.__name__}_vars'],
+        )
       else:
         if p.device_mesh is not None:
           bias_split_dims_mapping = [
@@ -315,7 +318,8 @@ class MultiHeadedProjectionLayer(quant_utils.QuantizableLayer):
             dtype=p.dtype,
             device_mesh=p.device_mesh,
             tensor_split_dims_mapping=bias_split_dims_mapping,
-            collections=[self.__class__.__name__ + '_vars'])
+            collections=[f'{self.__class__.__name__}_vars'],
+        )
       self.CreateVariable('b', pc_bias)
 
   def FProp(self, theta, inputs):
@@ -1306,7 +1310,7 @@ class MultiHeadedAttentionXL(MultiHeadedAttention):
     assert not params.packed_input, 'Packed input not implemented yet.'
 
     if params.rel_pos_emb_dim is None or params.rel_pos_emb_dim <= 0:
-      raise ValueError('Invalid rel_pos_emb_dim: %s' % params.rel_pos_emb_dim)
+      raise ValueError(f'Invalid rel_pos_emb_dim: {params.rel_pos_emb_dim}')
 
     emb_params = layers.PositionalEmbeddingLayer.Params().Set(
         embedding_dim=params.rel_pos_emb_dim)
@@ -1331,12 +1335,14 @@ class MultiHeadedAttentionXL(MultiHeadedAttention):
         shape=[params.num_heads, dim_per_head],
         init=py_utils.WeightInit.Constant(0.0),
         dtype=params.dtype,
-        collections=[self.__class__.__name__ + '_vars'])
+        collections=[f'{self.__class__.__name__}_vars'],
+    )
     v_pc = py_utils.WeightParams(
         shape=[params.num_heads, dim_per_head],
         init=py_utils.WeightInit.Constant(0.0),
         dtype=params.dtype,
-        collections=[self.__class__.__name__ + '_vars'])
+        collections=[f'{self.__class__.__name__}_vars'],
+    )
 
     self.CreateVariable('u', u_pc)
     self.CreateVariable('v', v_pc)
@@ -1356,15 +1362,14 @@ class MultiHeadedAttentionXL(MultiHeadedAttention):
     # [2T - 1, N, H]
     sin_emb = tf.squeeze(sin_emb, 0)
 
-    logits = self.pos_atten_logits.AttenLogitsXL(
+    return self.pos_atten_logits.AttenLogitsXL(
         query,
         key,
         abs_pos_emb=sin_emb,
         content_bias=theta.u,
         positional_bias=theta.v,
-        skip_term_b=self.params.skip_term_b)
-
-    return logits
+        skip_term_b=self.params.skip_term_b,
+    )
 
   def _AttenLogitsOneStep(self, theta, query, key, time_step):
     """Attention logits for one single target (query) step.
@@ -1406,15 +1411,14 @@ class MultiHeadedAttentionXL(MultiHeadedAttention):
       # [s, n, h]
       sin_emb = tf.squeeze(sin_emb, 0)
 
-    logits = self.pos_atten_logits.AttenLogitsXLOneStep(
+    return self.pos_atten_logits.AttenLogitsXLOneStep(
         query,
         key,
         abs_pos_emb=sin_emb,
         content_bias=theta.u,
         positional_bias=theta.v,
-        skip_term_b=p.skip_term_b)
-
-    return logits
+        skip_term_b=p.skip_term_b,
+    )
 
   def ExtendStep(self,
                  theta,
@@ -1465,7 +1469,7 @@ class MultiHeadedAttentionRPE(MultiHeadedAttention):
     assert not params.packed_input, 'Packed input not implemented yet.'
 
     if not params.rel_pos_radius:
-      raise ValueError('Invalid rel_pos_radius: %s' % params.rel_pos_radius)
+      raise ValueError(f'Invalid rel_pos_radius: {params.rel_pos_radius}')
 
     if params.rel_pos_emb_dim is None:
       rel_pos_emb_dim = params.hidden_dim
@@ -1737,8 +1741,7 @@ class LocalSelfAttention(MultiHeadedAttention):
     assert not p.packed_input, 'Packed input not implemented yet.'
     if p.block_size is None:
       p.block_size = max(1, p.left_context - 1)
-      tf.logging.warning('block_size not set, use default value {}'.format(
-          p.block_size))
+      tf.logging.warning(f'block_size not set, use default value {p.block_size}')
 
     assert not p.packed_input, 'Packed input not implemented yet.'
 
@@ -2005,14 +2008,13 @@ class LocalSelfAttention(MultiHeadedAttention):
   def zero_state(self, batch_size):
     """Returns the initial state given the batch size."""
     p = self.params
-    if (p.inference_step_max_length is not None and
-        p.inference_step_max_length > 0 and not p.right_context):
-      if p.minimize_state_size:
-        return self._zero_state_static_length_inputs(batch_size)
-      else:
-        return self._zero_state_static_length_key_value(batch_size)
-    else:
+    if (p.inference_step_max_length is None or p.inference_step_max_length <= 0
+        or p.right_context):
       return self._zero_state_dynamic_length(batch_size)
+    if p.minimize_state_size:
+      return self._zero_state_static_length_inputs(batch_size)
+    else:
+      return self._zero_state_static_length_key_value(batch_size)
 
   def _zero_state_static_length_inputs(self, batch_size):
     """Returns the initial state given the batch size.
@@ -2070,13 +2072,12 @@ class LocalSelfAttention(MultiHeadedAttention):
     assert p.right_context == 0, 'StreamStep does not support look-ahead'
 
     context_len = p.inference_step_max_length + p.left_context - 1
-    if not p.use_3d_recurrent_state:
-      key_state = tf.zeros(
-          [batch_size, context_len, p.num_heads, p.hidden_dim // p.num_heads],
-          py_utils.FPropDtype(p))
-    else:
-      key_state = tf.zeros([batch_size, context_len, p.hidden_dim],
-                           py_utils.FPropDtype(p))
+    key_state = (tf.zeros(
+        [batch_size, context_len, p.hidden_dim],
+        py_utils.FPropDtype(p)) if p.use_3d_recurrent_state else tf.zeros(
+            [batch_size, context_len, p.num_heads, p.hidden_dim // p.num_heads],
+            py_utils.FPropDtype(p),
+        ))
     value_state = tf.zeros_like(key_state, py_utils.FPropDtype(p))
     # At the beginning, all positions are masked out.
     masks = tf.zeros([batch_size, context_len], tf.bool)

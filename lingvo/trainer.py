@@ -233,7 +233,7 @@ def _StartShell(local_ns=None):
 
   user_ns = {}
   if local_ns:
-    user_ns.update(local_ns)
+    user_ns |= local_ns
   user_ns.update(globals())
   IPython.start_ipython(argv=[], user_ns=user_ns)
 
@@ -293,7 +293,7 @@ class Controller(base_runner.BaseRunner):
 
   def StartEnqueueOp(self, op):
     self._RunLoop(
-        'controller/enqueue_op/%s' % op.name, self._LoopEnqueue, loop_args=[op])
+        f'controller/enqueue_op/{op.name}', self._LoopEnqueue, loop_args=[op])
 
   def _Loop(self):
     with tf.container(self._container_id), self._GetSession() as sess:
@@ -656,7 +656,7 @@ class TrainerTpu(base_runner.BaseRunner):
     if self._retrieve_ops:
       return
     self._RunLoop(
-        'trainer/enqueue_op/%s' % op.name, self._LoopEnqueue, loop_args=[op])
+        f'trainer/enqueue_op/{op.name}', self._LoopEnqueue, loop_args=[op])
 
   def _SummarizeValue(self, steps, tag, value):
     self._summary_writer.add_summary(
@@ -696,7 +696,7 @@ class TrainerTpu(base_runner.BaseRunner):
       self._DequeueThreadComplete()
       return
     with tf.container(
-        self._container_id), self._cluster, self._GetSession() as sess:
+          self._container_id), self._cluster, self._GetSession() as sess:
       config_proto = (
           self._tpu_embedding.config_proto
           if self._tpu_embedding is not None else None)
@@ -714,8 +714,8 @@ class TrainerTpu(base_runner.BaseRunner):
       comp_result_proto = tpu_compilation_result.CompilationResultProto()
       comp_result_proto.ParseFromString(compilation_result)
       if comp_result_proto.status_error_message:
-        tf.logging.fatal('Compilation failed: {}'.format(
-            comp_result_proto.status_error_message))
+        tf.logging.fatal(
+            f'Compilation failed: {comp_result_proto.status_error_message}')
       self._SetStatusMessage('Compiling done.')
 
       if FLAGS.checkpoint_in_trainer_tpu:
@@ -738,23 +738,12 @@ class TrainerTpu(base_runner.BaseRunner):
           # Init/restore variable if needed.
           self.checkpointer.RestoreIfNeeded(sess)
 
-        if self._trial.ShouldStopAndMaybeReport(
-            global_step, eval_metrics) or self._ShouldEarlyStop(sess):
-          # Early terminate gracefully by setting a new max step horizon: three
-          # more TPU steps to ensure that the enqueue ops can gracefully
-          # terminate as well. Otherwise, the enqueue thread may be stuck, e.g.,
-          # when the queue is filled and the enqueue thread is blocked when
-          # pushing new data to the queue, if the trainer thread decides to
-          # early stop (i.e., `self._ShouldEarlyStop(sess)` is true), then the
-          # enqueue thread could be blocked forever as the trainer thread would
-          # never consume any new data from the queue. After setting the new
-          # max step horizon, the trainer thread would continue run for 3 loops
-          # (3K global steps usually), so the enqueue thread could get a chance
-          # to move forward and run `_ShouldStop()` to stop gracefully.
-          if self._max_steps_for_early_stop is None:
-            self._max_steps_for_early_stop = global_step + 3 * self._steps_per_loop
-            tf.logging.info('Early stopping at step: %d',
-                            self._max_steps_for_early_stop)
+        if (self._trial.ShouldStopAndMaybeReport(global_step, eval_metrics)
+            or self._ShouldEarlyStop(sess)
+            ) and self._max_steps_for_early_stop is None:
+          self._max_steps_for_early_stop = global_step + 3 * self._steps_per_loop
+          tf.logging.info('Early stopping at step: %d',
+                          self._max_steps_for_early_stop)
 
         if self._ShouldStop(sess, global_step, check_early_stop=False):
           tf.logging.info('Training finished.')
@@ -820,8 +809,7 @@ class TrainerTpu(base_runner.BaseRunner):
         checkpoint_write_secs = 0.0
         if FLAGS.checkpoint_in_trainer_tpu:
           checkpoint_write_start = time.perf_counter()
-          checkpoint_saved = self.checkpointer.MaybeSave(sess, global_step)
-          if checkpoint_saved:
+          if checkpoint_saved := self.checkpointer.MaybeSave(sess, global_step):
             checkpoint_write_secs = time.perf_counter() - checkpoint_write_start
         train_steps_secs = time.perf_counter() - train_steps_start
         self._ExportMetrics(
@@ -840,8 +828,8 @@ class Evaler(base_runner.BaseRunner):
 
   def __init__(self, eval_type, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    self._job_name = 'evaler_' + eval_type
-    self._output_name = 'eval_' + eval_type
+    self._job_name = f'evaler_{eval_type}'
+    self._output_name = f'eval_{eval_type}'
     self._export = eval_type == 'train'
     if not self._export:
       tf.logging.info(f'Job {self._job_name} will not export the model.')
@@ -849,7 +837,7 @@ class Evaler(base_runner.BaseRunner):
     self._cluster = cluster_factory.Cluster(self.params.cluster)
     self._eval_dir = os.path.join(self._logdir, self._output_name)
     if self._model_task_name:
-      self._eval_dir += '_' + str(self._model_task_name)
+      self._eval_dir += f'_{str(self._model_task_name)}'
     tf.io.gfile.makedirs(self._eval_dir)
 
     self._eval_path = None
@@ -886,8 +874,11 @@ class Evaler(base_runner.BaseRunner):
     # Saves the graph def.
     self._WriteToLog(self.params.ToText(), self._eval_dir, 'params.txt')
     if self.params.cluster.task == 0:
-      tf.io.write_graph(self._graph.as_graph_def(), self._eval_dir,
-                        '%s.pbtxt' % self._output_name)
+      tf.io.write_graph(
+          self._graph.as_graph_def(),
+          self._eval_dir,
+          f'{self._output_name}.pbtxt',
+      )
 
   def _CreateCheckpointer(self, train_dir, model):
     """Wrapper method for override purposes."""
@@ -1143,8 +1134,7 @@ class RunnerManager:
             dataset_name, dataset_name_retry, e)
         cfg = self.model_registry.GetParams(self._model_name,
                                             dataset_name_retry)
-        tf.logging.warning('Succeeded after retrying as %s.' %
-                           dataset_name_retry)
+        tf.logging.warning(f'Succeeded after retrying as {dataset_name_retry}.')
     cfg.cluster = cluster.params
 
     # Updates a few params based on flags.
@@ -1163,17 +1153,17 @@ class RunnerManager:
     job_specs = FLAGS.cluster_spec.split('@')
     cluster_spec_dict = _GetClusterSpecDict()
     if FLAGS.job == 'trainer_client':
-      FLAGS.tf_master = 'grpc://%s' % cluster_spec_dict['worker'][FLAGS.task]
+      FLAGS.tf_master = f"grpc://{cluster_spec_dict['worker'][FLAGS.task]}"
     for job in cluster_spec_dict:
       if job.startswith('decoder_'):
         assert len(job_specs) == 1, 'Decoder jobs must run on their own'
         assert ',' not in job_specs[0], 'Only single machine supported'
-        FLAGS.decoder_job = '/job:%s' % job
+        FLAGS.decoder_job = f'/job:{job}'
         FLAGS.decoder_replicas = 1
       if job.startswith('evaler_'):
         assert len(job_specs) == 1, 'Evaler jobs must run on their own'
         assert ',' not in job_specs[0], 'Only single machine supported'
-        FLAGS.evaler_job = '/job:%s' % job
+        FLAGS.evaler_job = f'/job:{job}'
         FLAGS.evaler_replicas = 1
     if FLAGS.mode == 'sync' and FLAGS.job in ('controller', 'trainer_client',
                                               'worker', 'executor_tpu'):
@@ -1209,7 +1199,7 @@ class RunnerManager:
     FLAGS.mode = 'sync'
     FLAGS.tf_master = cluster_resolver.master()
 
-    FLAGS.worker_job = '/job:{}'.format(FLAGS.job)
+    FLAGS.worker_job = f'/job:{FLAGS.job}'
     FLAGS.worker_replicas = 1
     FLAGS.worker_num_tpu_hosts = len(cluster_spec_dict[FLAGS.job])
     FLAGS.worker_tpus = (
@@ -1218,8 +1208,8 @@ class RunnerManager:
     if FLAGS.job == 'trainer_client':
       FLAGS.ps_replicas = FLAGS.worker_replicas
 
-    FLAGS.cluster_spec = ('@'.join('{}={}'.format(job, ','.join(hosts))
-                                   for job, hosts in cluster_spec_dict.items()))
+    FLAGS.cluster_spec = '@'.join(
+        f"{job}={','.join(hosts)}" for job, hosts in cluster_spec_dict.items())
 
     FLAGS.xla_device = 'tpu'
     FLAGS.enable_asserts = False

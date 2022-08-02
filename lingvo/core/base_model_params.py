@@ -79,8 +79,8 @@ class _BaseModelParams:
       f = getattr(self, dataset)
     except AttributeError as e:
       raise DatasetError(
-          str(e) +
-          '; available datasets are: %s' % datasets.GetDatasets(type(self)))
+          (str(e) +
+           f'; available datasets are: {datasets.GetDatasets(type(self))}'))
     return f()
 
 

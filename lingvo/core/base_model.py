@@ -53,7 +53,7 @@ class DecodeFinalizeArgs(
 def _VariablesForEMA(params, model_var_list):
   """Gets a list of variables that need to apply exponential moving average."""
   # Use variable reference since variable is not hashable in eager mode.
-  ref_set = lambda variables: set([v.ref() for v in variables])
+  ref_set = lambda variables: {v.ref() for v in variables}
 
   trainable_variables = [var for var in model_var_list if var.trainable]
 
@@ -342,8 +342,8 @@ class BaseTask(base_layer.BaseLayer):
 
     if p.task_global_step:
       with tf.name_scope(None), tf.variable_scope(
-          py_utils.GetGlobalVariableScope()):
-        var_name = p.name + '_global_step'
+              py_utils.GetGlobalVariableScope()):
+        var_name = f'{p.name}_global_step'
         # Create the variable immediately.
         self._CreateVariableInternal(
             var_name,
@@ -684,20 +684,25 @@ class BaseTask(base_layer.BaseLayer):
     all_losses = []
     for optimization in self.learners:
       learner_name = optimization.params.name
-      (losses, train_ops['train/%s' % learner_name],
-       eval_metrics) = optimization.Apply(
-           metrics,
-           vmap,
-           gradient_mask=gradient_mask,
-           gradient_adjuster=self.AdjustGradients)
+      (
+          losses,
+          train_ops[f'train/{learner_name}'],
+          eval_metrics,
+      ) = optimization.Apply(
+          metrics,
+          vmap,
+          gradient_mask=gradient_mask,
+          gradient_adjuster=self.AdjustGradients,
+      )
       all_losses.extend(losses)
       if add_summary:
         for key, (value, weight) in eval_metrics.items():
           self.AddEvalMetric(
-              key + '/' + learner_name,
+              f'{key}/{learner_name}',
               value,
               weight,
-              raise_if_already_added=not py_utils.IsEagerMode())
+              raise_if_already_added=not py_utils.IsEagerMode(),
+          )
 
     relevant_bn_updates, _ = py_utils.FindRelevantBatchNormUpdates(
         all_losses, tf.get_collection(py_utils.BATCH_NORM_UPDATES))
@@ -766,8 +771,9 @@ class BaseTask(base_layer.BaseLayer):
           tf.zeros(len(bprop_variable_filters), dtype=tf.float32))
       for i in range(len(bprop_variable_filters)):
         if re.search(bprop_variable_filters[i], var.name):
-          tf.logging.info('Keep gradient after filtering, regex: %s var: %s' %
-                          (bprop_variable_filters[i], var.name))
+          tf.logging.info(
+              f'Keep gradient after filtering, regex: {bprop_variable_filters[i]} var: {var.name}'
+          )
           self._per_input_gradient_mask[var.name] += (
               tf.one_hot(i, len(bprop_variable_filters), dtype=tf.float32))
 
@@ -854,8 +860,7 @@ class BaseTask(base_layer.BaseLayer):
       decode_finalize_args: A DecodeFinalizeArgs namedtuple.
     """
     decode_out_path = decode_finalize_args.decode_out_path
-    decode_out = decode_finalize_args.decode_out
-    if decode_out:
+    if decode_out := decode_finalize_args.decode_out:
       decoder_lib.WriteKeyValuePairs(decode_out_path, decode_out)
 
   @property
@@ -917,22 +922,21 @@ class BaseTask(base_layer.BaseLayer):
       ValueError: if `name` is already defined.
 
     """
-    if name in self._eval_metrics and not tf.executing_eagerly():
-      if raise_if_already_added:
-        raise ValueError('Metric %s has already been defined.' % name)
+    if (name in self._eval_metrics and not tf.executing_eagerly()
+        and raise_if_already_added):
+      raise ValueError(f'Metric {name} has already been defined.')
     self._eval_metrics[name] = (value, weight)
 
   def AddPerExampleTensor(self, name, value):
     if name in self._per_example and not tf.executing_eagerly(
     ) and not py_utils.IsEagerMode():
-      raise ValueError('Metric %s has already been defined.' % name)
+      raise ValueError(f'Metric {name} has already been defined.')
     self._per_example[name] = value
 
   def _UpdateVnConfig(self):
     """Update vn config from the various vn flags."""
     p = self.params
-    tp = p.train
-    if tp:
+    if tp := p.train:
       vn_enabled = ((tp.vn_std > 0) and p.vn and
                     (p.vn.global_vn or p.vn.per_step_vn))
       if self.do_eval or (not vn_enabled):
@@ -1087,11 +1091,7 @@ class BaseModel(base_layer.BaseLayer):
 
   def _MakeEMAVariablesDict(self):
     if self.ema:
-      res = {}
-      # We cannot rely on existing methods e.g. `variables_for_ema` because it
-      # uses collections which is not usable in Eager mode.
-      for var in self.ema._averages.values():  # pylint: disable=protected-access
-        res[var.name] = var
+      res = {var.name: var for var in self.ema._averages.values()}
       self._ema_variables_dict = res
 
   def ConstructFPropBPropGraph(self):

@@ -39,14 +39,13 @@ def ConvertToBlocks(x, block_size, padding_val=0.0):
   b = shape[0]
   t = shape[1]
   if block_size < 1:
-    raise ValueError('block_size must be at least 1, got {}'.format(block_size))
+    raise ValueError(f'block_size must be at least 1, got {block_size}')
   w = block_size
   # Pad t to be a multiply of w.
   num_blocks = (t + w - 1) // w
   pad_to_length = num_blocks * w
   padded = py_utils.PadSequenceDimension(x, pad_to_length, padding_val)
-  reshaped = tf.reshape(padded, [b, num_blocks, w] + shape[2:])
-  return reshaped
+  return tf.reshape(padded, [b, num_blocks, w] + shape[2:])
 
 
 def ExtractBlockContext(x,
@@ -70,15 +69,15 @@ def ExtractBlockContext(x,
     start = i * block_size, end = (i + 1) * block_size.
   """
   if block_size < 1:
-    raise ValueError('block_size must be at least 1, got {}'.format(block_size))
+    raise ValueError(f'block_size must be at least 1, got {block_size}')
   if left_context < 1 or left_context > block_size + 1:
     raise ValueError(
-        'left_context must be at least 1 and at most block_size + 1 = {}, '
-        'got {}'.format(block_size + 1, left_context))
+        f'left_context must be at least 1 and at most block_size + 1 = {block_size + 1}, got {left_context}'
+    )
   if right_context < 0 or right_context > block_size:
     raise ValueError(
-        'right_context must be at least 0 and at most block_size = {}, '
-        'got {}'.format(block_size, right_context))
+        f'right_context must be at least 0 and at most block_size = {block_size}, got {right_context}'
+    )
 
   block = ConvertToBlocks(x, block_size, padding_val)
   concat_list = [block]
@@ -159,7 +158,7 @@ def MakeLocalMask(seq_len,
   # [num_blocks, block_size]: if the source position is valid, not padded.
   valid_src = src_positions < seq_len
   # [num_blocks, context_size]: if the target position is valid, not padded.
-  valid_tgt = tf.math.logical_and(0 <= tgt_positions, tgt_positions < seq_len)
+  valid_tgt = tf.math.logical_and(tgt_positions >= 0, tgt_positions < seq_len)
 
   valid_atten &= tf.math.logical_and(valid_src[:, :, tf.newaxis],
                                      valid_tgt[:, tf.newaxis, :])
@@ -339,10 +338,7 @@ class PositionalAttenLogits(quant_utils.QuantizableLayer):
       term_ac = tf.einsum('BTNH,BSNH->BNTS', content, key)
       term_ac = self.FromAqtActActMatmul(term_ac)
     with tf.name_scope('term_bd'):
-      if skip_term_b:
-        content = positional_bias
-      else:
-        content = query + positional_bias
+      content = positional_bias if skip_term_b else query + positional_bias
       term_bd = self.RelPositionBias(content, abs_pos_emb, skip_term_b)
     return term_ac + term_bd
 
@@ -438,21 +434,16 @@ class PositionalAttenLogits(quant_utils.QuantizableLayer):
 
     # Term b an d.
     synced_time_step = abs_pos_emb.shape.ndims == 3
-    if skip_term_b:
-      content = positional_bias
-    else:
-      content = query + positional_bias
+    content = positional_bias if skip_term_b else query + positional_bias
     content, abs_pos_emb = self.ToAqtActActInputs(content, abs_pos_emb)
     if not skip_term_b:
-      if synced_time_step:
-        term_bd = tf.einsum('BNH,SNH->SBN', content, abs_pos_emb)
-      else:
-        term_bd = tf.einsum('BNH,BSNH->SBN', content, abs_pos_emb)
+      term_bd = (tf.einsum('BNH,SNH->SBN', content,
+                           abs_pos_emb) if synced_time_step else tf.einsum(
+                               'BNH,BSNH->SBN', content, abs_pos_emb))
+    elif synced_time_step:
+      term_bd = tf.einsum('NH,SNH->SN', content, abs_pos_emb)
     else:
-      if synced_time_step:
-        term_bd = tf.einsum('NH,SNH->SN', content, abs_pos_emb)
-      else:
-        term_bd = tf.einsum('NH,BSNH->SBN', content, abs_pos_emb)
+      term_bd = tf.einsum('NH,BSNH->SBN', content, abs_pos_emb)
     term_bd = self.FromAqtActActMatmul(term_bd)
     # Reshape the output after dequantizing.
     if skip_term_b and synced_time_step:
@@ -541,7 +532,8 @@ class KMeansClusteringForAtten(base_layer.BaseLayer):
         shape=[p.num_heads, p.num_clusters, p.dim_per_head],
         init=p.params_init,
         dtype=self._dtype,
-        collections=[self.__class__.__name__ + '_vars'])
+        collections=[f'{self.__class__.__name__}_vars'],
+    )
     self.CreateVariable('means', means, trainable=p.trainable)
     if p.use_ema:
       init_value_op = getattr(self.vars.means, 'initialized_value', None)
@@ -554,12 +546,14 @@ class KMeansClusteringForAtten(base_layer.BaseLayer):
               custom_v_init=initial_value),
           dtype=p.dtype,
           shape=[p.num_heads, p.num_clusters, p.dim_per_head],
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       ema_count = py_utils.WeightParams(
           shape=[p.num_heads, p.num_clusters],
-          init=py_utils.WeightInit.Constant(0.),
+          init=py_utils.WeightInit.Constant(0.0),
           dtype=p.dtype,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       self.CreateVariable('ema_means', ema_means, trainable=False)
       self.CreateVariable('ema_count', ema_count, trainable=False)
 

@@ -31,13 +31,11 @@ def scale_infeed_to_global(infeed_batch_size, use_per_host_infeed):
     int: Global batch size.
   """
   cluster = cluster_factory.Current()
-  if use_per_host_infeed and cluster.num_tpu_hosts > 0:
-    if not py_utils.use_tpu():
-      raise ValueError('Scaling to TPU hosts without TPUs. {}'.format(
-          cluster.num_tpu_hosts))
-    return infeed_batch_size * cluster.num_tpu_hosts
-  else:
+  if not use_per_host_infeed or cluster.num_tpu_hosts <= 0:
     return infeed_batch_size
+  if not py_utils.use_tpu():
+    raise ValueError(f'Scaling to TPU hosts without TPUs. {cluster.num_tpu_hosts}')
+  return infeed_batch_size * cluster.num_tpu_hosts
 
 
 def scale_split_to_infeed(split_batch_size, use_per_host_infeed):

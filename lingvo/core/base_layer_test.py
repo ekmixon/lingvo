@@ -46,7 +46,9 @@ class TestLayer(base_layer.BaseLayer):
             shape=[4, 4],
             dtype=p.dtype,
             init=p.params_init,
-            collections=[self.__class__.__name__ + '_vars']))
+            collections=[f'{self.__class__.__name__}_vars'],
+        ),
+    )
     self.CreateVariable(
         'b',
         py_utils.WeightParams(
@@ -54,9 +56,11 @@ class TestLayer(base_layer.BaseLayer):
             dtype=p.dtype,
             init=py_utils.WeightInit.Constant(),
             collections=[
-                self.__class__.__name__ + '_vars',
-                py_utils.SKIP_LP_REGULARIZATION
-            ]))
+                f'{self.__class__.__name__}_vars',
+                py_utils.SKIP_LP_REGULARIZATION,
+            ],
+        ),
+    )
 
 
 class TestParentLayer(base_layer.BaseLayer):

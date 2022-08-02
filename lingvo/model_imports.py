@@ -25,12 +25,12 @@ import sys
 
 def _Import(name):
   """Imports the python module of the given name."""
-  print('model_imports.py: Importing %s' % name, file=sys.stderr)
+  print(f'model_imports.py: Importing {name}', file=sys.stderr)
   try:
     importlib.import_module(name)
     return True
   except ModuleNotFoundError as e:
-    missing_module = re.match("No module named '(.*?)'", e.msg).group(1)
+    missing_module = re.match("No module named '(.*?)'", e.msg)[1]
     if not name.startswith(missing_module):
       raise
   return False
@@ -70,7 +70,7 @@ def ImportAllParams(task_root=_TASK_ROOT,
     # By our code repository convention, there is a params.py under the task's
     # params directory. params.py imports _all_ modules that may registers a
     # model param.
-    success = _Import('{}.{}.params.params'.format(task_root, task)) or success
+    success = _Import(f'{task_root}.{task}.params.params') or success
   if require_success and not success:
     raise LookupError('Could not import any task params. Make sure task params '
                       'are linked into the binary.')
@@ -83,7 +83,7 @@ def ImportParams(model_name,
   """Attempts to only import the files that may contain the model."""
   # 'model_name' follows <task>.<path>.<class name>
   if '.' not in model_name:
-    raise ValueError('Invalid model name %s' % model_name)
+    raise ValueError(f'Invalid model name {model_name}')
   if model_name.startswith('test.'):
     # Test models don't need external imports.
     return True

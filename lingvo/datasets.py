@@ -85,12 +85,10 @@ def GetDatasets(cls: Any, warn_on_error: bool = True) -> List[str]:
         # Methods obtained from inspecting an instance, or classmethods obtained
         # from inspecting a class are bound and inspect.ismethod() returns True.
         args = args[1:]
-      positional_arguments = [p.name for p in args if p.default == p.empty]
-      if positional_arguments:
-        if inspect.isclass(cls):
-          class_name = cls.__name__
-        else:
-          class_name = cls.__class__.__name__
+      if positional_arguments := [
+          p.name for p in args if p.default == p.empty
+      ]:
+        class_name = cls.__name__ if inspect.isclass(cls) else cls.__class__.__name__
         message = (f'Found a public function {name} in {class_name} with '
                    f'required positional arguments: {positional_arguments}.')
         if warn_on_error:
@@ -133,6 +131,8 @@ def GetDatasetsAst(base_dir: str, model: str) -> List[str]:
   with open(os.path.join(module), 'r') as f:
     tree = ast.parse(f.read())
 
+
+
   class DatasetsVisitor(ast.NodeVisitor):
     """NodeVisitor for collecting datasets for a model."""
 
@@ -148,8 +148,7 @@ def GetDatasetsAst(base_dir: str, model: str) -> List[str]:
     def visit_ImportFrom(self, node):  # pylint: disable=invalid-name
       """Visit a 'from module import symbol [as alias]' definition."""
       for alias in node.names:
-        self._imports[alias.asname or alias.name] = (
-            node.module + '.' + alias.name)
+        self._imports[alias.asname or alias.name] = f'{node.module}.{alias.name}'
 
     def visit_ClassDef(self, node):  # pylint: disable=invalid-name
       """Visit a class definition."""
@@ -180,6 +179,7 @@ def GetDatasetsAst(base_dir: str, model: str) -> List[str]:
       elif (node.name not in NON_DATASET_MEMBERS and
             not node.name.startswith('_')):
         self.datasets.add(node.name)
+
 
   visitor = DatasetsVisitor()
   visitor.visit(tree)

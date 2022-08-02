@@ -83,10 +83,7 @@ class BaseRunner:
 
     self._train_dir = os.path.join(self._logdir, 'train')
     tf.io.gfile.makedirs(self._train_dir)
-    if py_utils.IsEagerMode():
-      self._graph = None
-    else:
-      self._graph = tf.Graph()
+    self._graph = None if py_utils.IsEagerMode() else tf.Graph()
     self._summary_writer = None
     self._initialize_tables = None
     self._dequeue_thread_complete = False
@@ -119,7 +116,7 @@ class BaseRunner:
 
   def _FormatStatusMessage(self, message, retrying):
     if self._trial.Name():
-      message = 'Trial:{} {}'.format(self._trial.Name(), message)
+      message = f'Trial:{self._trial.Name()} {message}'
     if retrying:
       message = f'Job {self._job_name}: <b>Retrying as expected</b>\n{message}'
     return message
@@ -214,13 +211,12 @@ class BaseRunner:
         raise
       msg = 'step:%6d' % global_step
       self._SetStatusMessage(msg)
-      if start_up_delay_steps:
-        if global_step < start_up_delay_steps:
-          msg = 'global step (%d) has not reached start up delay steps (%d)' % (
-              global_step, self._start_up_delay_steps)
-          tf.logging.info('%s: %s', self._job_name, msg)
-          raise tf.errors.FailedPreconditionError(
-              node_def=None, op=None, message=msg)
+      if start_up_delay_steps and global_step < start_up_delay_steps:
+        msg = 'global step (%d) has not reached start up delay steps (%d)' % (
+            global_step, self._start_up_delay_steps)
+        tf.logging.info('%s: %s', self._job_name, msg)
+        raise tf.errors.FailedPreconditionError(
+            node_def=None, op=None, message=msg)
       return global_step
 
     return RetryLoop()
@@ -234,11 +230,11 @@ class BaseRunner:
       return None
     path = tf.train.latest_checkpoint(self._train_dir)
     if not path:
-      msg = 'No check point is found in %s' % self._train_dir
+      msg = f'No check point is found in {self._train_dir}'
       tf.logging.info('%s: %s', self._job_name, msg)
       raise RuntimeError(msg)
     if path in processed_ckpts:
-      msg = 'No new check point is found: %s' % path
+      msg = f'No new check point is found: {path}'
       tf.logging.info('%s: %s', self._job_name, msg)
       raise RuntimeError(msg)
     return path
@@ -262,8 +258,8 @@ class BaseRunner:
         # In daemon mode, an external scheduler will retry the job on 0 status.
         # So exit with a non-zero status to prevent retry.
         self._SetStatusMessage(
-            '%s completed successfully. Exiting with FAILURE to prevent retry.'
-            % job_name)
+            f'{job_name} completed successfully. Exiting with FAILURE to prevent retry.'
+        )
         time.sleep(300)  # Wait a bit for other threads to complete.
         os._exit(4)  # pylint: disable=protected-access
 
@@ -273,21 +269,17 @@ class BaseRunner:
           'Compilation failure',
           'Run-time shape mismatch for TPUExecute argument'
       ]
-      if any([x in str(e) for x in fatal_error_msgs]):
+      if any(x in str(e) for x in fatal_error_msgs):
         # Fatal error if failing to compile graph on TPU.
         retry = False
       elif isinstance(e, tf.errors.AbortedError):
         # AbortedError: is thrown when processes restarts.
         retry = True
-        if self._InVizierStudy():
-          # With Vizier studies, we want to avoid retrying under some error
-          # conditions, these are captured here.
-          # Do not retry (via raise/retry) if AbortedError with RecvTensor
-          # message. This can happen if there are memory issues.
-          if ('The same RecvTensor (WorkerServiceImpl) request was received '
-              'twice' in str(e)):
-            retry = False
-            tf.logging.info('%s done (infeasible error).', job_name)
+        if self._InVizierStudy() and (
+            'The same RecvTensor (WorkerServiceImpl) request was received '
+            'twice' in str(e)):
+          retry = False
+          tf.logging.info('%s done (infeasible error).', job_name)
       elif isinstance(e, tf.errors.OutOfRangeError):
         #   OutOfRangeError: Test/dev datasets are exhausted.
         retry = self._cluster.do_eval
@@ -296,11 +288,10 @@ class BaseRunner:
         #       ResourceVariableOp.
         retry = True
         # Do not retry within Vizier study when NaNs cause InvalidArgumentError.
-        if self._InVizierStudy():
-          if 'Tensor had NaN values' in str(e):
-            retry = False
-            tf.logging.info('%s done (infeasible result due to NaN values).',
-                            job_name)
+        if self._InVizierStudy() and 'Tensor had NaN values' in str(e):
+          retry = False
+          tf.logging.info('%s done (infeasible result due to NaN values).',
+                          job_name)
       elif isinstance(
           e, py_utils.transient_tf_errors +
           (tf.errors.DataLossError, tf.errors.CancelledError)):
@@ -579,7 +570,7 @@ class BaseRunner:
       with tf.io.gfile.GFile(processed_ckpts_path, 'w') as f:
         f.write('')
     with tf.io.gfile.GFile(processed_ckpts_path, 'r') as f:
-      processed_ckpts = list(line.strip() for line in f.readlines())
+      processed_ckpts = [line.strip() for line in f.readlines()]
     return processed_ckpts
 
   def _UpdateProcessedCheckpoints(self, runner_dir, ckpt_path):
@@ -650,9 +641,7 @@ class BaseRunner:
       # checkpoint state every loop.
       state = tf.train.get_checkpoint_state(self._train_dir)
       ckpts = set() if state is None else state.all_model_checkpoint_paths
-      unprocessed_ckpts = set(ckpts).difference(processed_ckpts)
-
-      if unprocessed_ckpts:
+      if unprocessed_ckpts := set(ckpts).difference(processed_ckpts):
         # Process the checkpoints sequentially.
         ckpt_path = sorted(unprocessed_ckpts)[0]
         try:

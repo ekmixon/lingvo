@@ -34,9 +34,7 @@ from tensorflow.python.ops import inplace_ops  # pylint:disable=g-direct-tensorf
 # to save and merge the attention state across the defun boundary as is
 # done in recurrent.py.
 def _ConditionalCallDefun(cond, f, inputs):
-  if not cond:
-    return f(inputs)
-  return py_utils.CallDefun(f, inputs)
+  return py_utils.CallDefun(f, inputs) if cond else f(inputs)
 
 
 def _ApplyAttentionDropout(params, x):
@@ -55,13 +53,12 @@ def _ApplyAttentionDropout(params, x):
   if params.atten_dropout_prob == 0:
     return x
 
-  if params.atten_dropout_deterministic:
-    seeds = py_utils.GenerateStepSeedPair(params)
-    return py_utils.DeterministicDropout(x, 1.0 - params.atten_dropout_prob,
-                                         seeds)
-  else:
+  if not params.atten_dropout_deterministic:
     return tf.nn.dropout(
         x, rate=params.atten_dropout_prob, seed=params.random_seed)
+  seeds = py_utils.GenerateStepSeedPair(params)
+  return py_utils.DeterministicDropout(x, 1.0 - params.atten_dropout_prob,
+                                       seeds)
 
 
 def SafeCumprod(x, *args, **kwargs):
@@ -656,11 +653,7 @@ class AdditiveAttention(BaseAttentionLayer):
       contexts = tf.squeeze(contexts, axis=1)
       return contexts, probs
 
-    if p.same_batch_size:
-      self._ctx_vec = AttenSameBatchSize
-    else:
-      self._ctx_vec = Atten
-
+    self._ctx_vec = AttenSameBatchSize if p.same_batch_size else Atten
     def EncodeSource(src_w, vecs, ctxs):
       """Prepares source vec and ctx."""
       time, batch = py_utils.GetShape(vecs, 2)
@@ -747,10 +740,7 @@ class AdditiveAttention(BaseAttentionLayer):
 
   def ZeroAttentionState(self, source_length, decoder_batch_size):
     p = self.params
-    # This is just a dummy state. The first dimension of the state has to match
-    # decoder_batch_size.
-    zs = tf.zeros([decoder_batch_size, 1], dtype=py_utils.FPropDtype(p))
-    return zs
+    return tf.zeros([decoder_batch_size, 1], dtype=py_utils.FPropDtype(p))
 
   def ComputeContextVectorWithSource(self,
                                      theta,
@@ -1240,12 +1230,12 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
     """Constructs a MultiHeadedAttention object."""
     super().__init__(params)
     p = self.params
-    assert symbolic.ToStatic(
-        p.hidden_dim) % p.num_attention_heads == 0, '%s mod %s != 0' % (
-            symbolic.ToStatic(p.hidden_dim), p.num_attention_heads)
+    assert (
+        symbolic.ToStatic(p.hidden_dim) % p.num_attention_heads == 0
+    ), f'{symbolic.ToStatic(p.hidden_dim)} mod {p.num_attention_heads} != 0'
 
     if p.proj_init not in ('uniform', 'default'):
-      raise ValueError('Unknown proj_init: %s!' % p.proj_init)
+      raise ValueError(f'Unknown proj_init: {p.proj_init}!')
 
     att_dim = p.hidden_dim // p.num_attention_heads
 
@@ -1307,7 +1297,8 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
           shape=[p.hidden_dim],
           init=InitProj(p.hidden_dim, bias=True),
           dtype=p.dtype,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
 
     if p.enable_source_proj:
       pc = py_utils.WeightParams(
@@ -1316,7 +1307,8 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
           dtype=p.dtype,
           device_mesh=p.device_mesh,
           tensor_split_dims_mapping=p.weight_split_dims_mapping,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       self.CreateVariable('source_proj', pc)
       if p.use_bias:
         self.CreateVariable('source_proj_b', pc_bias)
@@ -1330,7 +1322,8 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
           dtype=p.dtype,
           device_mesh=p.device_mesh,
           tensor_split_dims_mapping=p.weight_split_dims_mapping,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       self.CreateVariable('query_proj', pc)
       if p.use_bias:
         self.CreateVariable('query_proj_b', pc_bias)
@@ -1345,7 +1338,8 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
           dtype=p.dtype,
           device_mesh=p.device_mesh,
           tensor_split_dims_mapping=p.weight_split_dims_mapping,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       self.CreateVariable('ctx_proj', pc)
       if p.use_bias:
         self.CreateVariable('ctx_proj_b', pc_bias)
@@ -1369,14 +1363,16 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
           dtype=p.dtype,
           device_mesh=p.device_mesh,
           tensor_split_dims_mapping=weight_split_dims_mapping,
-          collections=[self.__class__.__name__ + '_vars'])
+          collections=[f'{self.__class__.__name__}_vars'],
+      )
       self.CreateVariable('ctx_post_proj', pc)
       if p.use_bias:
         pc_bias_post_proj = py_utils.WeightParams(
             shape=pc_b_shape,
             init=InitProj(p.ctx_post_proj_dim, bias=True),
             dtype=p.dtype,
-            collections=[self.__class__.__name__ + '_vars'])
+            collections=[f'{self.__class__.__name__}_vars'],
+        )
         self.CreateVariable('ctx_post_proj_b', pc_bias_post_proj)
 
     self.TrackQTensor('source_proj_matmul', 'source_proj_add',
@@ -1609,19 +1605,18 @@ class MultiHeadedAttention(BaseAttentionLayer, quant_utils.QuantizableLayer):
                 'source_segment_id'):
       if cached_packed_src.get(key, None) is None:
         extended_packed_src[key] = None
+      elif t is None:
+        processed = tf.reshape(processed_packed_src[key], [1, batch_size, -1])
+        extended_packed_src[key] = tf.concat(
+            [cached_packed_src[key], processed], axis=0)
       else:
-        if t is not None:
-          processed = tf.reshape(processed_packed_src[key], [batch_size, -1])
-          # Make sure t is a scaler instead of tensors having shape like [1,].
-          # This could happen in cases where function is called by recurrent.py
-          # (for example target_sequence_sampler.)
-          t = tf.reshape(t, [])
-          extended_packed_src[key] = inplace_ops.alias_inplace_update(
-              cached_packed_src[key], t, processed)
-        else:
-          processed = tf.reshape(processed_packed_src[key], [1, batch_size, -1])
-          extended_packed_src[key] = tf.concat(
-              [cached_packed_src[key], processed], axis=0)
+        processed = tf.reshape(processed_packed_src[key], [batch_size, -1])
+        # Make sure t is a scaler instead of tensors having shape like [1,].
+        # This could happen in cases where function is called by recurrent.py
+        # (for example target_sequence_sampler.)
+        t = tf.reshape(t, [])
+        extended_packed_src[key] = inplace_ops.alias_inplace_update(
+            cached_packed_src[key], t, processed)
     return extended_packed_src
 
   @py_utils.NameScopeDecorator('MultiHeadedAttention/ZeroAttentionState')

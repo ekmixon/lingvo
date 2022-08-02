@@ -150,8 +150,8 @@ class AdaGraftOptimizer(tf.train.Optimizer):
 
   def _finish(self, update_ops, name_scope):
     with tf.control_dependencies(update_ops):
-      ops1 = self.magnitude_optimizer._finish([], name_scope + "_m")  # pylint: disable=protected-access
-      ops2 = self.direction_optimizer._finish([], name_scope + "_d")  # pylint: disable=protected-access
+      ops1 = self.magnitude_optimizer._finish([], f"{name_scope}_m")
+      ops2 = self.direction_optimizer._finish([], f"{name_scope}_d")
 
       if self.use_global_norm:  # apply global grafting
         with tf.control_dependencies([ops1, ops2]):

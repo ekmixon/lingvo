@@ -265,19 +265,17 @@ class DistillationTaskTest(test_utils.TestCase):
 
       variables = {}
       values_before_training = {}
-      values_after_training = {}
       for child in ('teacher', 'student'):
-        variables[child] = {
-            k: v
-            for k, v in getattr(task, child).vars.FlattenItems()
-        }
+        variables[child] = dict(getattr(task, child).vars.FlattenItems())
         values_before_training[child] = self.evaluate(variables[child])
 
       # Train for a few steps.
       for _ in range(10):
         self.evaluate(task.train_op)
-      for child in ('teacher', 'student'):
-        values_after_training[child] = self.evaluate(variables[child])
+      values_after_training = {
+          child: self.evaluate(variables[child])
+          for child in ('teacher', 'student')
+      }
       return values_before_training, values_after_training
 
   def testFProp(self):
@@ -285,7 +283,7 @@ class DistillationTaskTest(test_utils.TestCase):
         self._GetVarValuesBeforeAndAfter(DistillationTestTask.Params()))
     for child in ('teacher', 'student'):
       for k, v in values_after_training[child].items():
-        print('Comparing variable %s' % k)
+        print(f'Comparing variable {k}')
         if child == 'teacher':
           # Teacher vars should not change after training.
           self.assertAllEqual(values_before_training[child][k], v)
@@ -301,13 +299,9 @@ class DistillationTaskTest(test_utils.TestCase):
         self._GetVarValuesBeforeAndAfter(params))
     for child in ('teacher', 'student'):
       for k, v in values_after_training[child].items():
-        print('Comparing variable %s' % k)
-        if child == 'teacher':
-          # Teacher vars should change after training.
-          self.assertNotAlmostEqual(values_before_training[child][k], v)
-        else:
-          # Student vars should change after training.
-          self.assertNotAlmostEqual(values_before_training[child][k], v)
+        print(f'Comparing variable {k}')
+        # Teacher vars should change after training.
+        self.assertNotAlmostEqual(values_before_training[child][k], v)
 
 
 class SingleTaskModelTest(test_utils.TestCase, parameterized.TestCase):

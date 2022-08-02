@@ -70,16 +70,10 @@ class BaseTrainerTest(test_utils.TestCase):
                            FLAGS.tf_master, self._trial)
 
   def _HasFile(self, files, substr):
-    for f in files:
-      if substr in f:
-        return True
-    return False
+    return any(substr in f for f in files)
 
   def _GetMatchedFileName(self, files, substr):
-    for f in files:
-      if substr in f:
-        return f
-    return None
+    return next((f for f in files if substr in f), None)
 
   def _HasLine(self, filename, pattern):
     """Returns True iff one line in the given file matches the pattern."""
@@ -153,7 +147,7 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
   @flagsaver.flagsaver
   def testController(self):
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'controller_test' + str(random.random()))
+                          f'controller_test{random.random()}')
     FLAGS.logdir = logdir
     cfg = self._GetSimpleTestConfig()
 
@@ -163,10 +157,10 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
         [self._CreateController(cfg),
          self._CreateTrainer(cfg)])
 
-    train_files = tf.io.gfile.glob(logdir + '/train/*')
+    train_files = tf.io.gfile.glob(f'{logdir}/train/*')
     self.assertTrue(self._HasFile(train_files, 'ckpt'))
     self.assertTrue(self._HasFile(train_files, 'tfevents'))
-    control_files = tf.io.gfile.glob(logdir + '/control/*')
+    control_files = tf.io.gfile.glob(f'{logdir}/control/*')
     self.assertTrue(self._HasFile(control_files, 'params.txt'))
     self.assertTrue(self._HasFile(control_files, 'params.pbtxt'))
     self.assertTrue(self._HasFile(control_files, 'model_analysis.txt'))
@@ -177,7 +171,7 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
     # steps.
     runner_manager.StartRunners([self._CreateEvalerDev(cfg)])
 
-    dev_files = tf.io.gfile.glob(logdir + '/eval_dev/*')
+    dev_files = tf.io.gfile.glob(f'{logdir}/eval_dev/*')
     self.assertTrue(self._HasFile(dev_files, 'params.txt'))
     self.assertTrue(self._HasFile(dev_files, 'eval_dev.pbtxt'))
     self.assertTrue(self._HasFile(dev_files, 'tfevents'))
@@ -187,8 +181,7 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
 
   @flagsaver.flagsaver
   def testDecoder(self):
-    logdir = os.path.join(tf.test.get_temp_dir(),
-                          'decoder_test' + str(random.random()))
+    logdir = os.path.join(tf.test.get_temp_dir(), f'decoder_test{random.random()}')
     FLAGS.logdir = logdir
     dec_dir = os.path.join(logdir, 'decoder_dev')
     cfg = self._GetSimpleTestConfig()
@@ -261,11 +254,11 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
   def testWriteInferenceGraph(self):
     random.seed()
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'inference_graphs' + str(random.random()))
+                          f'inference_graphs{random.random()}')
     FLAGS.logdir = logdir
     cfg = 'punctuator.codelab.RNMTModel'
     trainer.RunnerManager(cfg).WriteInferenceGraph()
-    inference_files = tf.io.gfile.glob(logdir + '/inference_graphs/*')
+    inference_files = tf.io.gfile.glob(f'{logdir}/inference_graphs/*')
     self.assertTrue(self._HasFile(inference_files, 'inference.pbtxt'))
     self.assertTrue(self._HasFile(inference_files, 'inference_tpu.pbtxt'))
 
@@ -273,11 +266,11 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
   def testWriteOneOfMultiTaskInferenceGraph(self):
     random.seed()
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'inference_graphs' + str(random.random()))
+                          f'inference_graphs{random.random()}')
     FLAGS.logdir = logdir
     cfg = 'test.EmptyMultiTaskParams'
     trainer.RunnerManager(cfg).WriteInferenceGraph()
-    inference_files = tf.io.gfile.glob(logdir + '/inference_graphs/*')
+    inference_files = tf.io.gfile.glob(f'{logdir}/inference_graphs/*')
     self.assertTrue(self._HasFile(inference_files, 'a_inference.pbtxt'))
     self.assertTrue(self._HasFile(inference_files, 'a_inference_tpu.pbtxt'))
     self.assertFalse(self._HasFile(inference_files, 'b_inference.pbtxt'))
@@ -287,11 +280,11 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
   def testWriteMultiTaskInferenceGraph(self):
     random.seed()
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'inference_graphs' + str(random.random()))
+                          f'inference_graphs{random.random()}')
     FLAGS.logdir = logdir
     cfg = 'test.EmptyMultiTaskParams'
     trainer.RunnerManager(cfg).WriteInferenceGraph()
-    inference_files = tf.io.gfile.glob(logdir + '/inference_graphs/*')
+    inference_files = tf.io.gfile.glob(f'{logdir}/inference_graphs/*')
     self.assertTrue(self._HasFile(inference_files, 'a_inference.pbtxt'))
     self.assertTrue(self._HasFile(inference_files, 'a_inference_tpu.pbtxt'))
     self.assertTrue(self._HasFile(inference_files, 'b_inference.pbtxt'))
@@ -299,7 +292,7 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
 
   def testRunLocally(self):
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'run_locally_test' + str(random.random()))
+                          f'run_locally_test{random.random()}')
     FLAGS.logdir = logdir
     FLAGS.run_locally = 'cpu'
     FLAGS.mode = 'sync'
@@ -309,10 +302,10 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
         FakeMnistData(self.get_temp_dir(), train_size=2, test_size=2))
     trainer.main(None)
 
-    train_files = tf.io.gfile.glob(logdir + '/train/*')
+    train_files = tf.io.gfile.glob(f'{logdir}/train/*')
     self.assertTrue(self._HasFile(train_files, 'ckpt'))
     self.assertTrue(self._HasFile(train_files, 'tfevents'))
-    control_files = tf.io.gfile.glob(logdir + '/control/*')
+    control_files = tf.io.gfile.glob(f'{logdir}/control/*')
     self.assertTrue(self._HasFile(control_files, 'params.txt'))
     self.assertTrue(self._HasFile(control_files, 'model_analysis.txt'))
     self.assertTrue(self._HasFile(control_files, 'tfevents'))
@@ -320,8 +313,7 @@ class TrainerTest(BaseTrainerTest, parameterized.TestCase):
   @parameterized.named_parameters(('Evaler', trainer.Evaler),
                                   ('Decoder', trainer.Decoder))
   def testEMA(self, cls):
-    logdir = os.path.join(tf.test.get_temp_dir(),
-                          'ema_test' + str(random.random()))
+    logdir = os.path.join(tf.test.get_temp_dir(), f'ema_test{random.random()}')
     FLAGS.logdir = logdir
     cfg = self._GetSimpleTestConfig()
     runner = cls('dev', cfg, FLAGS.model_task_name, FLAGS.logdir,
@@ -341,7 +333,7 @@ class TrainerWithTrialTest(BaseTrainerTest):
     self._trial = trial
 
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'controller_test' + str(random.random()))
+                          f'controller_test{random.random()}')
     FLAGS.logdir = logdir
     cfg = self._GetSimpleTestConfig()
 
@@ -377,12 +369,12 @@ class TrainerWithTrialTest(BaseTrainerTest):
     # report_done.
     self.assertEqual(trial.ReportEvalMeasure.call_count, 0)
 
-    train_files = tf.io.gfile.glob(logdir + '/train/*')
+    train_files = tf.io.gfile.glob(f'{logdir}/train/*')
     self.assertTrue(self._HasFile(train_files, 'params.txt'))
     self.assertTrue(self._HasFile(train_files, 'trainer_params.txt'))
     self.assertTrue(self._HasFile(train_files, 'ckpt'))
     self.assertTrue(self._HasFile(train_files, 'tfevents'))
-    control_files = tf.io.gfile.glob(logdir + '/control/*')
+    control_files = tf.io.gfile.glob(f'{logdir}/control/*')
     self.assertTrue(self._HasFile(control_files, 'params.txt'))
     self.assertTrue(self._HasFile(control_files, 'model_analysis.txt'))
     self.assertTrue(self._HasFile(control_files, 'tfevents'))
@@ -399,7 +391,7 @@ class TrainerWithTrialTest(BaseTrainerTest):
     after_decoder_count = trial.ReportEvalMeasure.call_count
     self.assertGreater(after_decoder_count, 0)
 
-    dev_files = tf.io.gfile.glob(logdir + '/eval_dev/*')
+    dev_files = tf.io.gfile.glob(f'{logdir}/eval_dev/*')
     self.assertTrue(self._HasFile(dev_files, 'params.txt'))
     self.assertTrue(self._HasFile(dev_files, 'eval_dev.pbtxt'))
     self.assertTrue(self._HasFile(dev_files, 'tfevents'))
@@ -413,7 +405,7 @@ class ProcessFPropResultsTest(BaseTrainerTest):
   @flagsaver.flagsaver
   def testIdentityRegressionModel(self):
     logdir = os.path.join(tf.test.get_temp_dir(),
-                          'identity_regression_test' + str(random.random()))
+                          f'identity_regression_test{random.random()}')
     FLAGS.logdir = logdir
 
     steps = 100

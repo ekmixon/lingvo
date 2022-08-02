@@ -181,10 +181,10 @@ class BaseModelsTest(test_utils.TestCase):
     print(f'Creating tests for {task_regexes}, excluding {exclude_regexes}')
     valid_models = []
     for model_name in sorted(model_names):
-      if not any([re.search(regex, model_name) for regex in task_regexes]):
+      if not any(re.search(regex, model_name) for regex in task_regexes):
         print(f'Skipping tests for registered model {model_name}')
         continue
-      if any([re.search(regex, model_name) for regex in exclude_regexes]):
+      if any(re.search(regex, model_name) for regex in exclude_regexes):
         print(f'Explicitly excluding tests for registered model {model_name}')
         continue
       valid_models.append(model_name)
@@ -192,5 +192,5 @@ class BaseModelsTest(test_utils.TestCase):
       def _Test(self, name=model_name):
         self._testOneModelParams(registry, name)  # pylint: disable=protected-access
 
-      setattr(cls, 'testModelParams_%s' % model_name.replace('.', '_'), _Test)
+      setattr(cls, f"testModelParams_{model_name.replace('.', '_')}", _Test)
     print(f'Created {len(valid_models)} tests: {valid_models}')

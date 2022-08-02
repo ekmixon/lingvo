@@ -201,9 +201,9 @@ class BlockUtilsTest(test_utils.TestCase, parameterized.TestCase):
         if actual_src_pos < seq_len:
           for k in range(context_size):
             actual_tgt_pos = k + i * block_size - (left_context - 1)
-            if 0 <= actual_tgt_pos and actual_tgt_pos < seq_len:
+            if 0 <= actual_tgt_pos < seq_len:
               diff = actual_src_pos - actual_tgt_pos
-              if -right_context <= diff and diff < left_context:
+              if -right_context <= diff < left_context:
                 padding[i, j, k] = 0
 
     return padding

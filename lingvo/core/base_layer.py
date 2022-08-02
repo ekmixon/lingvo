@@ -335,16 +335,13 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
 
     res = {}
     for child in py_utils.Flatten(self.children):
-      res.update(child.GetVariablesDict(visited))
+      res |= child.GetVariablesDict(visited)
     res.update(self._GetSelfVariablesDict())
     return res
 
   def _GetSelfVariablesDict(self):
     """Returns a dict of variables from the model, excluding its children."""
-    res = {}
-    for var in self._private_vars.values():
-      res[var.name] = var
-    return res
+    return {var.name: var for var in self._private_vars.values()}
 
   def __init__(self, params: BaseLayerParamsT) -> None:
     """Layer constructor.
@@ -357,7 +354,7 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
 
     tf_module_name = params.name
     tf_module_name = re.sub('[^a-zA-Z0-9_]+', '_', tf_module_name)
-    tf_module_name = 'bbf_' + self.__class__.__name__ + '_' + tf_module_name
+    tf_module_name = f'bbf_{self.__class__.__name__}_{tf_module_name}'
     py_utils.NestedMap.CheckKey(tf_module_name)
 
     # initialize the base class.
@@ -412,11 +409,11 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
     """
     if self._create_variables_status != _CreateLayerVariablesStatus.NOT_CALLED:
       raise ValueError(
-          'Variable free status for %s must be set before InstantiateVariables().'
-          % self.params.cls)
+          f'Variable free status for {self.params.cls} must be set before InstantiateVariables().'
+      )
     if self._variables_to_create:
-      raise ValueError('Cannot set layer %s with variables as variable free.' %
-                       self.params.cls)
+      raise ValueError(
+          f'Cannot set layer {self.params.cls} with variables as variable free.')
     self._is_variable_free = value
 
   def FPropDefaultTheta(self, *args, **kwargs):
@@ -456,7 +453,7 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
     del theta
     del args
     del kwargs
-    raise NotImplementedError('Abstract method of %s' % self)
+    raise NotImplementedError(f'Abstract method of {self}')
 
   @classmethod
   def FPropMeta(cls, params, *args, **kwargs):
@@ -488,7 +485,7 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       - out_shapes - A tuple of `TShape`. I.e., `out_shapes[i]`
         represents the shape of the `i`-th returned tensor of the fprop.
     """
-    raise NotImplementedError('FPropMeta of %s' % cls)
+    raise NotImplementedError(f'FPropMeta of {cls}')
 
   @property
   def params(self) -> BaseLayerParamsT:
@@ -513,14 +510,14 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
   def path(self) -> str:
     """Returns a '.'-separated string with all layer names from the root."""
     if self.parent:
-      return self.parent.path + '.' + self.params.name
+      return f'{self.parent.path}.{self.params.name}'
     else:
       return self.params.name
 
   @property
   def layer_type(self) -> str:
     """Returns layer type prefixed with 'lingvo.'."""
-    return 'lingvo.' + self.__class__.__name__
+    return f'lingvo.{self.__class__.__name__}'
 
   @property
   def children(self) -> py_utils.NestedMap:
@@ -541,7 +538,7 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       # Call property getter again directly to raise the same error.
       return getattr(type(self), name).fget(self)
     else:
-      raise AttributeError('%s is not a sub-layer of %s.' % (name, self))
+      raise AttributeError(f'{name} is not a sub-layer of {self}.')
 
   def GetDescendant(self, path: str) -> BaseLayerT:
     """Returns a descendant layer given the path.
@@ -566,9 +563,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       # If child_name is being indexed as a list then we separate the name and
       # the index.
       index = None
-      match = re.match(r'(.*)\[([-]?[0-9]+)\]$', child_name)
-      if match:
-        child_name, index = match.group(1), int(match.group(2))
+      if match := re.match(r'(.*)\[([-]?[0-9]+)\]$', child_name):
+        child_name, index = match[1], int(match[2])
 
       # Validate that child_name is a child of the current parent layer.
       sub_path = '.'.join(path[:i])
@@ -606,8 +602,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       return py_utils.Transform(lambda _: py_utils.NestedMap(), self.children)
     if self._create_variables_status == _CreateLayerVariablesStatus.NOT_CALLED:
       raise ValueError(
-          'Cannot access vars for layer %s before they have been created.' %
-          self.params.cls)
+          f'Cannot access vars for layer {self.params.cls} before they have been created.'
+      )
     ret = py_utils.Transform(lambda x: x.vars, self.children)
     for k in self._private_vars.keys():
       ret[k] = self._private_vars[k]
@@ -626,8 +622,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
     self._private_vars = {key: fn(x) for key, x in self._private_vars.items()}
     if self._create_variables_status == _CreateLayerVariablesStatus.NOT_CALLED:
       raise ValueError(
-          'Cannot access vars for layer %s before they have been created.' %
-          self.params.cls)
+          f'Cannot access vars for layer {self.params.cls} before they have been created.'
+      )
     py_utils.Transform(
         lambda c: c._TransformVarsInternal(fn),  # pylint: disable=protected-access
         self.children)
@@ -655,8 +651,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       return py_utils.Transform(lambda _: py_utils.NestedMap(), self.children)
     if self._create_variables_status == _CreateLayerVariablesStatus.NOT_CALLED:
       raise ValueError(
-          'Cannot access theta for layer %s before they have been created.' %
-          self.params.cls)
+          f'Cannot access theta for layer {self.params.cls} before they have been created.'
+      )
 
     stack_size = len(_THETA_STACK.stack)
     _THETA_STACK.stack.append(self)
@@ -739,18 +735,19 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
   def _CheckName(self, name: str) -> None:
     """Asserts name's validity."""
     py_utils.NestedMap.CheckKey(name)
-    assert name not in self._private_vars, (
-        '%s exists in vars, %s' % (name, list(self._private_vars.keys())))
-    assert name not in self._private_theta, (
-        '%s exists in theta, %s' % (name, list(self._private_theta.keys())))
-    assert name not in self._private_children, ('%s exists in children, %s' % (
-        name, list(self._private_children.keys())))
-    assert name not in self._private_accumulators, (
-        '%s exists in global_accumulator: %s' %
-        (name, list(self._private_accumulators.keys())))
+    assert (name not in self._private_vars
+            ), f'{name} exists in vars, {list(self._private_vars.keys())}'
+    assert (name not in self._private_theta
+            ), f'{name} exists in theta, {list(self._private_theta.keys())}'
+    assert (
+        name not in self._private_children
+    ), f'{name} exists in children, {list(self._private_children.keys())}'
+    assert (
+        name not in self._private_accumulators
+    ), f'{name} exists in global_accumulator: {list(self._private_accumulators.keys())}'
 
   def _VariableCollections(self) -> List[str]:
-    return [LAYER_WT, '%s_vars' % self.__class__.__name__]
+    return [LAYER_WT, f'{self.__class__.__name__}_vars']
 
   def RegisterAccumulator(self, name, acc):
     """Registers an accumulator for this layer.
@@ -841,12 +838,12 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       var_params: `Params` used to create the variable.
       **kwargs: Keyword args passed to `.py_utils.CreateVariable`.
     """
-    if self.params.device_mesh is not None:
-      if (len([dim for dim in var_params.shape if dim > 1]) > 1 and
-          var_params.tensor_split_dims_mapping is None):
-        tf.logging.warning(
-            'tensor_split_dims_mapping missing for %s.%s: shape=%s', self.path,
-            name, var_params.shape)
+    if self.params.device_mesh is not None and (
+        len([dim for dim in var_params.shape if dim > 1]) > 1
+        and var_params.tensor_split_dims_mapping is None):
+      tf.logging.warning(
+          'tensor_split_dims_mapping missing for %s.%s: shape=%s', self.path,
+          name, var_params.shape)
     if self._is_variable_free:
       raise ValueError('Cannot create variable in variable free layer.')
     if self._create_variables_status == _CreateLayerVariablesStatus.COMPLETED:
@@ -892,15 +889,14 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
     if py_utils.IsEagerMode():
       # With eager trainer, always use the variable directly.
       value = var
+    elif self.cluster.params.worker.gpus_per_replica > 0:
+      # On GPU (which always trains a single step per session.run()),
+      # reference a tensor in FProp to cache it on device and avoid extraneous
+      # sends from reading variables from ps multiple times.
+      with tf.device(var.device):
+        value = tf.identity(var, name=name)
     else:
-      if self.cluster.params.worker.gpus_per_replica > 0:
-        # On GPU (which always trains a single step per session.run()),
-        # reference a tensor in FProp to cache it on device and avoid extraneous
-        # sends from reading variables from ps multiple times.
-        with tf.device(var.device):
-          value = tf.identity(var, name=name)
-      else:
-        value = var
+      value = var
 
     self._private_theta[name] = value
 
@@ -968,9 +964,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       for child in self._children_list:
         if self._is_variable_free and not child._is_variable_free:  # pylint: disable=protected-access
           raise ValueError(
-              'Variable free layer %s(%s) child %s(%s) has variables.' %
-              (self.params.name, self.params.cls, child.params.name,
-               child.params.cls))
+              f'Variable free layer {self.params.name}({self.params.cls}) child {child.params.name}({child.params.cls}) has variables.'
+          )
         child.InstantiateVariables()
 
   def _CreateLayerVariables(self) -> None:
@@ -1138,9 +1133,9 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
     def MatchKeys(x, y):
       assert len(x) <= len(y)
       for k in x.keys():
-        assert k in y, '%s not in %s.' % (k, y)
+        assert k in y, f'{k} not in {y}.'
         if isinstance(x[k], py_utils.NestedMap):
-          assert isinstance(y[k], py_utils.NestedMap), '%s is not a map' % y[k]
+          assert isinstance(y[k], py_utils.NestedMap), f'{y[k]} is not a map'
           MatchKeys(x[k], y[k])
 
     # NOTE: this check can be quadratically expensive. Maybe only
@@ -1169,9 +1164,8 @@ class BaseLayer(tf.Module, metaclass=BaseLayerMeta):
       if x is None:
         return None
       x = tf.convert_to_tensor(x)
-      if not x.dtype.is_floating:
-        return x
-      return tf.cast(x, py_utils.FPropDtype(self.params))
+      return (tf.cast(x, py_utils.FPropDtype(self.params))
+              if x.dtype.is_floating else x)
 
     return tf.nest.map_structure(_Cast, value)
 

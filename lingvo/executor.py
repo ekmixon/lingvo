@@ -86,8 +86,7 @@ def GetExecutorParams(model_name, cluster_params, model_registry):
           for field in ['ema_decay', 'ema_decay_moving_vars']:
             if (task_params.train.Get(field) !=
                 multi_task_train_cfg.train.Get(field)):
-              raise ValueError('Params did not match for field %s in task %s' %
-                               (field, task_name))
+              raise ValueError(f'Params did not match for field {field} in task {task_name}')
 
       for k, _ in multi_task_train_cfg.task_params.IterParams():
         if multi_task_train_cfg.share_model_object:
@@ -99,7 +98,7 @@ def GetExecutorParams(model_name, cluster_params, model_registry):
           train_task_params = base_model.SingleTaskModel.Params()
           train_task_params.task = multi_task_train_cfg.task_params.Get(k)
           train_task_params.input = multi_task_train_cfg.input.Get(k)
-        train_task_params.name = k + '_executor_train_task'
+        train_task_params.name = f'{k}_executor_train_task'
         train_task_params.cluster = multi_task_train_cfg.cluster
         train_task_params.train = multi_task_train_cfg.task_params.Get(k).train
 
@@ -122,8 +121,7 @@ def GetExecutorParams(model_name, cluster_params, model_registry):
             eval_task_params = base_model.SingleTaskModel.Params()
             eval_task_params.task = multi_task_eval_cfg.task_params.Get(k)
             eval_task_params.input = multi_task_eval_cfg.input.Get(k)
-          eval_task_params.name = (
-              k + '_' + eval_dataset_name + '_executor_eval_task')
+          eval_task_params.name = f'{k}_{eval_dataset_name}_executor_eval_task'
           eval_task_params.cluster = multi_task_eval_cfg.cluster
           eval_task_params = UnsetUnusedTrainParams(eval_task_params)
 
@@ -316,22 +314,22 @@ class ExecutorTpu(base_runner.BaseRunner):
         self._should_report_metrics = True
 
     with self._cluster, tf.container(
-        self._container_id), contextlib.ExitStack() as stack:
+          self._container_id), contextlib.ExitStack() as stack:
       if not py_utils.IsEagerMode():
         stack.enter_context(self._graph.as_default())
         stack.enter_context(tf.device(self._cluster.GetPlacer()))
       if FLAGS.pdb_on_exception:
         stack.enter_context(pdb_wrapper.catch_post_mortem())
       with py_utils.VariableStore(), py_utils.VariableRenameScope(
-          self._variable_renaming_rules):
+              self._variable_renaming_rules):
         global_step = py_utils.GetOrCreateGlobalStepVar()
-        if issubclass(train_cfg.cls, base_model.MultiTaskModel):
-          if train_cfg.train.ema_decay > 0:
-            # Create a global ExponentialMovingAverage object and share it
-            # across all subtasks.
-            ema = tf.train.ExponentialMovingAverage(
-                decay=train_cfg.train.ema_decay, num_updates=global_step)
-            py_utils.SetExponentialMovingAverage(ema)
+        if (issubclass(train_cfg.cls, base_model.MultiTaskModel)
+            and train_cfg.train.ema_decay > 0):
+          # Create a global ExponentialMovingAverage object and share it
+          # across all subtasks.
+          ema = tf.train.ExponentialMovingAverage(
+              decay=train_cfg.train.ema_decay, num_updates=global_step)
+          py_utils.SetExponentialMovingAverage(ema)
 
         for program in self._programs:
           program.BuildTpuSubgraph()
@@ -344,16 +342,10 @@ class ExecutorTpu(base_runner.BaseRunner):
 
       for program in self._programs:
         program.SetStatusMessageFn(self._SetStatusMessage)
-        if py_utils.IsEagerMode():
-          # TODO(laigd): support checkpointing.
-          pass
-        else:
+        if not py_utils.IsEagerMode():
           program.CreateCheckpointer(init_op=self._initialize_global_vars)
 
-      if py_utils.IsEagerMode():
-        # TODO(laigd): support checkpointing.
-        pass
-      else:
+      if not py_utils.IsEagerMode():
         self.save_only_checkpointer = checkpointer.Checkpointer(
             self._checkpoint_dir,
             model=None,
@@ -410,7 +402,7 @@ class ExecutorTpu(base_runner.BaseRunner):
 
   def _Loop(self):
     with self._cluster, tf.container(
-        self._container_id), contextlib.ExitStack() as stack:
+          self._container_id), contextlib.ExitStack() as stack:
       if py_utils.IsEagerMode():
         sess = None
       else:
@@ -460,11 +452,7 @@ class ExecutorTpu(base_runner.BaseRunner):
           global_step = sess.run(py_utils.GetGlobalStep())
 
         async_checkpointing = False
-        if py_utils.IsEagerMode():
-          # TODO(laigd): save checkpoints.
-          pass
-        else:
-
+        if not py_utils.IsEagerMode():
           def RunSave(sess, global_step):
             # Run TPU embedding retrieve ops.
             # NOTE: this is expensive, so only run it when we're checkpointing.
@@ -536,12 +524,8 @@ class ExecutorTpu(base_runner.BaseRunner):
           global_step = sess.run(py_utils.GetGlobalStep())
         if self._ShouldStop(sess, global_step):
           tf.logging.info('Training finished.')
-          if py_utils.IsEagerMode():
-            # TODO(laigd): save checkpoints.
-            pass
-          else:
-            if not self._ml_perf_log:
-              RunSave(sess, global_step)
+          if not py_utils.IsEagerMode() and not self._ml_perf_log:
+            RunSave(sess, global_step)
           tf.logging.info(
               'Program finished after %f seconds. Waiting for threads to end.',
               time.time() - start_time)

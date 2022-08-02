@@ -103,10 +103,7 @@ class ActivationLayer(base_layer.BaseLayer):
     else:
       with tf.name_scope(p.name):
         ret = GetFn(p.activation)(inputs)
-    if paddings is None:
-      return ret
-    else:
-      return ret, paddings
+    return ret if paddings is None else (ret, paddings)
 
   @classmethod
   def FPropMeta(cls, p, inputs):
